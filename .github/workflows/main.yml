@@ -1,0 +1,60 @@
+import os, smtplib, requests
+from bs4 import BeautifulSoup
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime
+
+# Keywords and countries
+KEYWORDS = ["Mechanical Technician", "Mechanical Engineer", "Mechanical Supervisor", "Rotating Equipment"]
+COUNTRIES = ["Saudi Arabia", "UAE", "Oman", "Qatar", "Kuwait", "Bahrain", "Singapore", "Malaysia"]
+
+# Job portals (basic search URLs)
+PORTALS = {
+    "GulfTalent": "https://www.gulftalent.com/jobs/title/Mechanical",
+    "Bayt": "https://www.bayt.com/en/international/jobs/mechanical-jobs/",
+    "NaukriGulf": "https://www.naukrigulf.com/mechanical-jobs-",
+    "Indeed": "https://www.indeed.com/q-Mechanical-jobs.html",
+    "Jobvite": "https://jobs.jobvite.com/"
+    # LinkedIn requires login → skipped here
+}
+
+def fetch_jobs():
+    results = []
+    for portal, url in PORTALS.items():
+        try:
+            html = requests.get(url, timeout=10).text
+            soup = BeautifulSoup(html, "html.parser")
+            # Very simple: grab all links with "mechanical" in them
+            for a in soup.find_all("a", href=True):
+                text = a.get_text(strip=True)
+                if any(k.lower() in text.lower() for k in KEYWORDS):
+                    link = a['href']
+                    if not link.startswith("http"):
+                        link = url + link
+                    results.append((portal, text, link))
+        except Exception as e:
+            results.append((portal, f"Error fetching {portal}: {e}", url))
+    return results
+
+def send_email(jobs):
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"Daily Mechanical Job Alerts - {datetime.now().strftime('%Y-%m-%d')}"
+    msg["From"] = os.getenv("MAIL_FROM")
+    msg["To"] = os.getenv("MAIL_TO")
+
+    html = "<h2>Today's Job Listings</h2><ul>"
+    for portal, title, link in jobs:
+        html += f"<li><b>[{portal}]</b> {title} → <a href='{link}'>Apply</a></li>"
+    html += "</ul>"
+
+    msg.attach(MIMEText(html, "html"))
+
+    with smtplib.SMTP_SSL(os.getenv("SMTP_HOST"), int(os.getenv("SMTP_PORT"))) as server:
+        server.login(os.getenv("SMTP_USER"), os.getenv("SMTP_PASS"))
+        server.sendmail(os.getenv("MAIL_FROM"), os.getenv("MAIL_TO"), msg.as_string())
+
+if __name__ == "__main__":
+    jobs = fetch_jobs()
+    send_email(jobs)
+    print("✅ Jobs fetched and email sent!")
+    
